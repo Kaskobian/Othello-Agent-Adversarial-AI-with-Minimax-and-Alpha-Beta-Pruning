@@ -21,16 +21,16 @@ Move = Tuple[int, int]
 class OthelloGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Othello Agent - AI vs AI")
+        self.root.title("Othello")
 
         # Game state
         self.game = OthelloGame()
-        self.human_color: Optional[str] = None
-        self.ai_color: Optional[str] = None
+        self.human_color: Optional[int] = None
+        self.ai_color: Optional[int] = None
         self.current_player = config.BLACK
         self.time_limit = config.DEFAULT_TIME_LIMIT
         self.dmax = config.DEFAULT_DMAX
-        self.ai_mode = 'both'  # Always AI vs AI
+        self.ai_mode = None  # 'vs_ai' or 'both'
 
         # Threading & AI
         self.ai_thread: Optional[threading.Thread] = None
@@ -52,49 +52,86 @@ class OthelloGUI:
             bg='darkgreen'
         )
         self.canvas.grid(row=0, column=0, columnspan=4, padx=8, pady=8)
+        self.canvas.bind('<Button-1>', self.on_canvas_click)
 
         # Info label
         self.info_label = tk.Label(
             root, 
-            text='AI vs AI Mode - Configure settings and press "Start New Game"', 
+            text='Select game mode and press "Start New Game"', 
             font=('Arial', 11, 'bold')
         )
         self.info_label.grid(row=1, column=0, columnspan=4, pady=5)
 
-        # First player selection
-        first_player_frame = ttk.LabelFrame(root, text="First Player", padding=5)
-        first_player_frame.grid(row=2, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
+        # Game mode selection
+        mode_frame = ttk.LabelFrame(root, text="Game Mode", padding=5)
+        mode_frame.grid(row=2, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
         
-        self.first_player_var = tk.StringVar(value='BLACK')
+        self.game_mode_var = tk.StringVar(value='AI vs AI')
         ttk.Radiobutton(
-            first_player_frame, 
+            mode_frame, 
+            text='AI vs AI', 
+            variable=self.game_mode_var, 
+            value='AI vs AI',
+            command=self.on_mode_change
+        ).pack(side='left', padx=10)
+        ttk.Radiobutton(
+            mode_frame, 
+            text='Human vs AI', 
+            variable=self.game_mode_var, 
+            value='Human vs AI',
+            command=self.on_mode_change
+        ).pack(side='left', padx=10)
+
+        # Human player options
+        self.human_options_frame = ttk.LabelFrame(root, text="Human Player", padding=5)
+        self.human_player_var = tk.IntVar(value=config.BLACK)
+        ttk.Radiobutton(
+            self.human_options_frame, 
+            text='Play as Black', 
+            variable=self.human_player_var, 
+            value=config.BLACK
+        ).pack(side='left', padx=10)
+        ttk.Radiobutton(
+            self.human_options_frame, 
+            text='Play as White', 
+            variable=self.human_player_var, 
+            value=config.WHITE
+        ).pack(side='left', padx=10)
+        
+        # First player selection
+        self.first_player_frame = ttk.LabelFrame(root, text="First Player", padding=5)
+        self.first_player_var = tk.IntVar(value=config.BLACK)
+        ttk.Radiobutton(
+            self.first_player_frame, 
             text='Black starts (Standard)', 
             variable=self.first_player_var, 
-            value='BLACK'
+            value=config.BLACK
         ).pack(side='left', padx=10)
         ttk.Radiobutton(
-            first_player_frame, 
+            self.first_player_frame, 
             text='White starts', 
             variable=self.first_player_var, 
-            value='WHITE'
+            value=config.WHITE
         ).pack(side='left', padx=10)
+        self.first_player_frame.grid(row=3, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
 
         # Control buttons
         ttk.Button(
             root, text='Start New Game', command=self.start_new_game
-        ).grid(row=3, column=0, sticky='ew', padx=4, pady=5)
+        ).grid(row=4, column=0, sticky='ew', padx=4, pady=5)
         
-        ttk.Button(
+        self.pause_button = ttk.Button(
             root, text='Pause/Resume', command=self.toggle_pause
-        ).grid(row=3, column=1, sticky='ew', padx=4, pady=5)
+        )
+        self.pause_button.grid(row=4, column=1, sticky='ew', padx=4, pady=5)
         
         ttk.Button(
             root, text='Quit', command=self.on_quit
-        ).grid(row=3, column=2, sticky='ew', padx=4, pady=5)
+        ).grid(row=4, column=2, sticky='ew', padx=4, pady=5)
 
         # Settings frame
         settings_frame = ttk.LabelFrame(root, text="Game Settings", padding=5)
-        settings_frame.grid(row=4, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
+        settings_frame.grid(row=5, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
 
         # Speed control
         ttk.Label(settings_frame, text='Speed (ms):').grid(row=0, column=0, sticky='e', padx=5)
@@ -106,7 +143,7 @@ class OthelloGUI:
             state='readonly',
             values=['0 (Instant)', '200 (Fast)', '500 (Medium)', '1000 (Normal)', '2000 (Slow)']
         )
-        speed_combo.current(3)  # Default to 1000
+        speed_combo.current(3)
         speed_combo.grid(row=0, column=1, sticky='w', padx=5)
 
         # Time limit
@@ -131,14 +168,13 @@ class OthelloGUI:
 
         # Move log
         log_frame = ttk.LabelFrame(root, text="Game Log", padding=5)
-        log_frame.grid(row=5, column=0, columnspan=4, padx=10, pady=5, sticky='nsew')
+        log_frame.grid(row=6, column=0, columnspan=4, padx=10, pady=5, sticky='nsew')
         
         self.move_log = tk.Text(
-            log_frame, width=60, height=12, state='disabled', wrap='word'
+            log_frame, width=60, height=8, state='disabled', wrap='word'
         )
         self.move_log.pack(fill='both', expand=True)
         
-        # Scrollbar for log
         scrollbar = ttk.Scrollbar(log_frame, command=self.move_log.yview)
         scrollbar.pack(side='right', fill='y')
         self.move_log.config(yscrollcommand=scrollbar.set)
@@ -146,361 +182,293 @@ class OthelloGUI:
         # Pause flag
         self.paused = False
 
-        # Draw initial board
+        # Initial setup
         self.draw_board()
-
-        # AI adapter detection
+        self.on_mode_change()
         self._ai_interface = self.detect_ai_interface()
         self.append_log(f"AI interface detected: {self._ai_interface}")
         self.append_log("Configure settings and click 'Start New Game' to begin!")
 
+    def _color_to_str(self, color: int) -> str:
+        if color == config.BLACK:
+            return "Black"
+        elif color == config.WHITE:
+            return "White"
+        return "Unknown"
+
+    def on_mode_change(self):
+        if self.game_mode_var.get() == 'Human vs AI':
+            self.human_options_frame.grid(row=3, column=0, columnspan=4, padx=10, pady=5, sticky='ew')
+            self.first_player_frame.grid_remove()
+        else:
+            self.human_options_frame.grid_remove()
+            self.first_player_frame.grid()
+
     def detect_ai_interface(self) -> str:
-        """Detect which AI class/interface exists in ai.py."""
-        if _ai_mod is None:
-            return "none"
-        if hasattr(_ai_mod, 'OthelloAI'):
-            return 'OthelloAI'
-        if hasattr(_ai_mod, 'SearchAgent'):
-            return 'SearchAgent'
+        if _ai_mod is None: return "none"
+        if hasattr(_ai_mod, 'OthelloAI'): return 'OthelloAI'
+        if hasattr(_ai_mod, 'SearchAgent'): return 'SearchAgent'
         return 'unknown'
 
     def start_new_game(self):
-        """Initialize a new AI vs AI game."""
-        # Always AI vs AI mode
-        self.human_color = None
-        self.ai_color = None
-        self.ai_mode = 'both'
-        
-        # Reset game
         self.game = OthelloGame()
-        
-        # Set starting player based on selection
-        if self.first_player_var.get() == 'BLACK':
-            self.current_player = config.BLACK
-            starting_player = "Black"
-        else:
-            self.current_player = config.WHITE
-            starting_player = "White"
-        
         self.game_over = False
         self.paused = False
+
+        # Game mode
+        if self.game_mode_var.get() == 'Human vs AI':
+            self.ai_mode = 'vs_ai'
+            self.human_color = self.human_player_var.get()
+            self.ai_color = self.game.get_opponent(self.human_color)
+            self.current_player = config.BLACK
+        else:
+            self.ai_mode = 'both'
+            self.human_color = None
+            self.ai_color = None
+            self.current_player = self.first_player_var.get()
 
         # Read settings
         try:
             self.time_limit = float(self.time_entry.get())
-            if self.time_limit <= 0:
-                raise ValueError("Time must be positive")
-        except Exception:
-            self.time_limit = config.DEFAULT_TIME_LIMIT
-            self.time_entry.delete(0, 'end')
-            self.time_entry.insert(0, str(self.time_limit))
-
-        try:
             self.dmax = int(self.dmax_entry.get())
-            if self.dmax <= 0:
-                raise ValueError("Dmax must be positive")
-        except Exception:
-            self.dmax = config.DEFAULT_DMAX
-            self.dmax_entry.delete(0, 'end')
-            self.dmax_entry.insert(0, str(self.dmax))
+        except ValueError:
+            messagebox.showerror("Invalid Settings", "Time limit and max depth must be numbers.")
+            return
 
-        # Clear log
+        # Clear log and update UI
         self.move_log.config(state='normal')
         self.move_log.delete('1.0', 'end')
         self.move_log.config(state='disabled')
-
-        self.append_log("=" * 60)
-        self.append_log("NEW GAME STARTED: AI vs AI")
-        self.append_log(f"First player: {starting_player}")
-        self.append_log(f"Time limit: {self.time_limit}s | Max depth: {self.dmax}")
-        speed_text = self.speed_var.get().split()[0]
-        self.append_log(f"Move delay: {speed_text}ms")
-        self.append_log("=" * 60)
         
-        self.draw_board()
-        self.update_info_label()
-        self.update_score()
+        self.append_log("=" * 60)
+        self.append_log(f"NEW GAME: {self.game_mode_var.get()}")
+        if self.ai_mode == 'vs_ai':
+            human_str = self._color_to_str(self.human_color)
+            ai_str = self._color_to_str(self.ai_color)
+            self.append_log(f"Human: {human_str}, AI: {ai_str}")
+        self.append_log(f"Time: {self.time_limit}s, Depth: {self.dmax}")
+        self.append_log("=" * 60)
 
-        # Start first AI move
-        self.root.after(500, self.start_ai_move)
+        self.draw_board()
+        self.update_score()
+        self.next_turn()
+
+    def next_turn(self):
+        if self.game_over: return
+        self.update_info_label()
+        self.draw_board() # Redraw to update legal moves highlight
+
+        if self.current_player == self.human_color:
+            self.pause_button.config(state='disabled')
+            # Human's turn, wait for click
+        else:
+            self.pause_button.config(state='normal')
+            # AI's turn
+            delay = self.get_speed_delay() if self.ai_mode == 'both' else 200
+            self.root.after(delay, self.start_ai_move)
+
+    def on_canvas_click(self, event):
+        if self.game_over or self.current_player != self.human_color:
+            return
+
+        pad = config.CANVAS_PADDING
+        size = config.CELL_SIZE
+        c = (event.x - pad) // size
+        r = config.BOARD_SIZE - 1 - ((event.y - pad) // size)
+
+        if 0 <= r < config.BOARD_SIZE and 0 <= c < config.BOARD_SIZE:
+            move = (int(r), int(c))
+            if move in self.game.legal_moves(self.human_color):
+                self.game.make_move(move, self.human_color)
+                human_str = self._color_to_str(self.human_color)
+                self.append_log(f"Human ({human_str}) -> {move}")
+                self.update_score()
+                
+                if self.check_game_over(): return
+                
+                self.current_player = self.game.get_opponent(self.current_player)
+                self.next_turn()
+            else:
+                self.append_log(f"Invalid move: {move}")
 
     def draw_board(self):
-        """Draw current board state on canvas."""
         self.canvas.delete('all')
         size = config.CELL_SIZE
         pad = config.CANVAS_PADDING
         
-        # Draw grid and pieces
+        legal_moves = []
+        if self.current_player == self.human_color and not self.game_over:
+            legal_moves = self.game.legal_moves(self.human_color)
+
         for r in range(config.BOARD_SIZE):
             for c in range(config.BOARD_SIZE):
-                x0 = pad + c * size
-                y0 = pad + (config.BOARD_SIZE - 1 - r) * size
-                x1 = x0 + size
-                y1 = y0 + size
+                x0, y0 = pad + c * size, pad + (config.BOARD_SIZE - 1 - r) * size
+                x1, y1 = x0 + size, y0 + size
                 
-                # Draw cell
-                self.canvas.create_rectangle(
-                    x0, y0, x1, y1, 
-                    outline='black', 
-                    fill='darkgreen'
-                )
+                fill_color = 'darkgreen'
+                if (r, c) in legal_moves:
+                    fill_color = 'forestgreen' # Highlight legal moves
+
+                self.canvas.create_rectangle(x0, y0, x1, y1, outline='black', fill=fill_color)
                 
-                # Draw piece
                 piece = self.game.board[r][c]
                 if piece != config.EMPTY:
                     color = 'black' if piece == config.BLACK else 'white'
-                    self.canvas.create_oval(
-                        x0+6, y0+6, x1-6, y1-6, 
-                        fill=color, 
-                        outline='gray',
-                        width=2
-                    )
+                    self.canvas.create_oval(x0+6, y0+6, x1-6, y1-6, fill=color, outline='gray', width=2)
         
-        # Draw coordinate labels
         for c in range(config.BOARD_SIZE):
             x = pad + c * size + size / 2
-            y_pos = pad / 2 if pad >= 10 else 10
-            self.canvas.create_text(
-                x, y_pos, text=str(c), 
-                fill='white', font=('Arial', 9, 'bold')
-            )
-        
+            self.canvas.create_text(x, pad/2, text=str(c), fill='white', font=('Arial', 9, 'bold'))
         for r in range(config.BOARD_SIZE):
             y = pad + (config.BOARD_SIZE - 1 - r) * size + size / 2
-            x_pos = pad / 2 if pad >= 10 else 10
-            self.canvas.create_text(
-                x_pos, y, text=str(r), 
-                fill='white', font=('Arial', 9, 'bold')
-            )
+            self.canvas.create_text(pad/2, y, text=str(r), fill='white', font=('Arial', 9, 'bold'))
 
     def toggle_pause(self):
-        """Pause or resume the AI vs AI game."""
+        if self.ai_mode != 'both':
+            self.append_log("Pause is only available in AI vs AI mode.")
+            return
         self.paused = not self.paused
         if self.paused:
             self.append_log("Game PAUSED")
-            self.info_label.config(text="Game PAUSED - Click Resume to continue")
+            self.info_label.config(text="Game PAUSED")
         else:
             self.append_log("Game RESUMED")
-            self.update_info_label()
-            # Resume AI if it's their turn
-            if not self.game_over and not (self.ai_thread and self.ai_thread.is_alive()):
-                self.root.after(200, self.start_ai_move)
+            self.next_turn()
 
     def start_ai_move(self):
-        """Start AI thinking in a background thread."""
-        if self.game_over or self.paused:
+        if self.game_over or self.paused or self.current_player == self.human_color:
             return
             
         if _ai_mod is None:
             messagebox.showerror("AI Error", "ai.py not found or failed to import.")
             return
 
-        if self.ai_thread and self.ai_thread.is_alive():
-            return
+        if self.ai_thread and self.ai_thread.is_alive(): return
 
-        ai_color_to_move = self.current_player
-
-        # Check if AI has legal moves
-        legal = self.game.legal_moves(ai_color_to_move)
+        legal = self.game.legal_moves(self.current_player)
+        color_name = self._color_to_str(self.current_player)
         
         if not legal:
-            color_name = "Black" if ai_color_to_move == config.BLACK else "White"
             self.append_log(f"AI {color_name} has no legal moves - PASS")
-            self.game.make_move(None, ai_color_to_move)
+            self.game.make_move(None, self.current_player)
             self.current_player = self.game.get_opponent(self.current_player)
-            self.update_info_label()
-            
-            if self.check_game_over():
-                return
-            
-            # Continue to next player
-            delay = self.get_speed_delay()
-            self.root.after(delay, self.start_ai_move)
+            if self.check_game_over(): return
+            self.next_turn()
             return
 
-        color_name = "Black" if ai_color_to_move == config.BLACK else "White"
         self.append_log(f"AI {color_name} thinking... ({len(legal)} legal moves)")
-
-        # Start AI worker thread
         self.ai_stop_event.clear()
         self.ai_start_time = time.time()
         self.ai_thread = threading.Thread(target=self._ai_worker, daemon=True)
         self.ai_thread.start()
 
     def get_speed_delay(self) -> int:
-        """Extract delay value from speed selection."""
-        speed_text = self.speed_var.get()
-        # Extract number from text like "1000 (Normal)"
-        delay_str = speed_text.split()[0]
         try:
-            return int(delay_str)
+            return int(self.speed_var.get().split()[0])
         except:
-            return 1000  # Default
+            return 1000
 
     def _ai_worker(self):
-        """Background worker: compute AI move."""
         ai_color = self.current_player
-        ai_interface = self._ai_interface
-        best_move = None
+        best_move, nodes_info = None, "N/A"
         start_time = time.time()
-        nodes_info = "N/A"
 
         try:
-            if ai_interface == 'OthelloAI':
-                AgentClass = getattr(_ai_mod, 'OthelloAI')
-                agent = AgentClass(self.game, ai_color)
-                
-                if hasattr(agent, 'get_move'):
-                    best_move = agent.get_move()
-                    nodes_info = getattr(agent, 'nodes_evaluated', 'N/A')
-                else:
-                    self.append_log("Error: OthelloAI has no get_move method")
-                    
-            elif ai_interface == 'SearchAgent':
-                AgentClass = getattr(_ai_mod, 'SearchAgent')
-                agent = AgentClass(
-                    self.game, 
-                    ai_color, 
-                    time_limit=self.time_limit, 
-                    max_depth=self.dmax
-                )
-                
-                if hasattr(agent, 'iterative_deepening'):
-                    best_move = agent.iterative_deepening()
-                elif hasattr(agent, 'get_move'):
-                    best_move = agent.get_move()
-                    
+            if self._ai_interface == 'OthelloAI':
+                agent = getattr(_ai_mod, 'OthelloAI')(self.game, ai_color)
+                best_move = agent.get_move()
+                nodes_info = getattr(agent, 'nodes_evaluated', 'N/A')
+            elif self._ai_interface == 'SearchAgent':
+                agent = getattr(_ai_mod, 'SearchAgent')(self.game, ai_color, self.time_limit, self.dmax)
+                best_move = agent.iterative_deepening() if hasattr(agent, 'iterative_deepening') else agent.get_move()
                 nodes_info = getattr(agent, 'nodes', 'N/A')
-                
             else:
-                self.append_log(f"Unknown AI interface: {ai_interface}")
-                best_move = None
-
-        except TimeoutError:
-            self.append_log(f"AI timed out after {self.time_limit}s")
+                self.append_log(f"Unknown AI interface: {self._ai_interface}")
         except Exception as ex:
             self.append_log(f"AI error: {ex}")
-            print(f"AI exception: {ex}")
             import traceback
             traceback.print_exc()
 
-        end_time = time.time()
-        elapsed = end_time - start_time
-
-        # Schedule move application
+        elapsed = time.time() - start_time
         self.root.after(10, lambda: self._apply_ai_move(best_move, elapsed, nodes_info))
 
     def _apply_ai_move(self, best_move, elapsed, nodes_info):
-        """Apply AI's move on the main thread."""
-        if self.game_over or self.paused:
-            return
+        if self.game_over or self.paused: return
             
-        color_name = "Black" if self.current_player == config.BLACK else "White"
+        color_name = self._color_to_str(self.current_player)
         
         if best_move is None:
             self.append_log(f"AI {color_name} passes")
             self.game.make_move(None, self.current_player)
         else:
-            print(f"\nBoard before AI {color_name} move {best_move}:")
-            print(self.game)
-            
             applied = self.game.make_move(best_move, self.current_player)
             if not applied:
-                self.append_log(f"AI {color_name} suggested illegal move - passing")
+                self.append_log(f"AI {color_name} suggested illegal move {best_move} - passing")
                 self.game.make_move(None, self.current_player)
             else:
-                self.append_log(
-                    f"AI {color_name} -> {best_move} "
-                    f"(time={elapsed:.2f}s, nodes={nodes_info})"
-                )
+                self.append_log(f"AI {color_name} -> {best_move} (t={elapsed:.2f}s, n={nodes_info})")
         
-        self.draw_board()
         self.update_score()
         
-        # Check for game over
-        if self.check_game_over():
-            return
+        if self.check_game_over(): return
         
-        # Switch player
         self.current_player = self.game.get_opponent(self.current_player)
-        self.update_info_label()
         self.ai_stop_event.set()
-        
-        # Schedule next AI move
-        if not self.paused:
-            delay = self.get_speed_delay()
-            self.root.after(delay, self.start_ai_move)
+        self.next_turn()
 
     def update_score(self):
-        """Update the score display."""
         black_count = sum(row.count(config.BLACK) for row in self.game.board)
         white_count = sum(row.count(config.WHITE) for row in self.game.board)
         self.score_label.config(text=f"Black: {black_count}  |  White: {white_count}")
 
     def check_game_over(self) -> bool:
-        """Check if game is over and display results."""
-        black_moves = self.game.legal_moves(config.BLACK)
-        white_moves = self.game.legal_moves(config.WHITE)
-        
-        if not black_moves and not white_moves:
+        if not self.game.legal_moves(config.BLACK) and not self.game.legal_moves(config.WHITE):
             self.game_over = True
             black_count = sum(row.count(config.BLACK) for row in self.game.board)
             white_count = sum(row.count(config.WHITE) for row in self.game.board)
             
-            if black_count > white_count:
-                winner = "Black"
-            elif white_count > black_count:
-                winner = "White"
-            else:
-                winner = "Tie"
+            winner_color = "Tie"
+            if black_count > white_count: winner_color = self._color_to_str(config.BLACK)
+            elif white_count > black_count: winner_color = self._color_to_str(config.WHITE)
             
-            result_msg = (
-                f"GAME OVER!\n\n"
-                f"Black: {black_count}\n"
-                f"White: {white_count}\n\n"
-                f"Winner: {winner}"
-            )
-            
+            result_msg = f"GAME OVER!\n\nBlack: {black_count}\nWhite: {white_count}\n\nWinner: {winner_color}"
             self.append_log("=" * 60)
-            self.append_log(f"GAME OVER! Winner: {winner}")
+            self.append_log(f"GAME OVER! Winner: {winner_color}")
             self.append_log(f"Final Score - Black: {black_count}, White: {white_count}")
             self.append_log("=" * 60)
             
-            self.info_label.config(text=f"GAME OVER! Winner: {winner}")
+            self.info_label.config(text=f"GAME OVER! Winner: {winner_color}")
             messagebox.showinfo("Game Over", result_msg)
             return True
-        
         return False
 
     def update_info_label(self):
-        """Update the info label with current player."""
-        if self.game_over:
-            return
+        if self.game_over: return
         
-        if self.current_player == config.BLACK:
-            self.info_label.config(text="Current turn: AI Black")
-        else:
-            self.info_label.config(text="Current turn: AI White")
+        current_player_str = self._color_to_str(self.current_player)
+        if self.current_player == self.human_color:
+            text = f"Your turn ({current_player_str})"
+        elif self.ai_mode == 'vs_ai':
+            text = f"AI's turn ({current_player_str})"
+        else: # AI vs AI
+            text = f"Current turn: AI {current_player_str}"
+        self.info_label.config(text=text)
 
     def on_quit(self):
-        """Quit the application."""
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
             self.root.quit()
 
     def append_log(self, text: str):
-        """Append text to the move log."""
         tstamp = time.strftime('%H:%M:%S')
         self.move_log.config(state='normal')
         self.move_log.insert('end', f"[{tstamp}] {text}\n")
         self.move_log.see('end')
         self.move_log.config(state='disabled')
 
-
 def main():
     root = tk.Tk()
     app = OthelloGUI(root)
     root.mainloop()
-
 
 if __name__ == '__main__':
     main()
